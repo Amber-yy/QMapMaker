@@ -52,6 +52,7 @@ struct MapMakerData
 	QPushButton *newMap;
 	QPushButton *openMap;
 	QPushButton *addTrigger;
+	QPushButton *saveMap;
 	newSceneDialog *sceneDialog;
 	triggerDialog *trigger;
 	triggerSelector *selector;
@@ -111,11 +112,26 @@ void QMapMaker::openMap()
 	{
 		return;
 	}
-	MapLua::getLua()->doFile(route.toStdString().c_str());
-	MapLua::getLua()->getGlobal("start");
-	MapLua::getLua()->pushUserData(this, "QMapMaker");
-	MapLua::getLua()->pushUserData(this, "QMapMaker");
-	MapLua::getLua()->protectedCall(2, 0, 0);
+
+	try
+	{
+		auto list = route.split('/');
+		QString temp = list[list.size() - 1];
+		list = temp.split('.');
+		QString sceneName = list[0];
+
+		MapLua::getLua()->doFile(route.toStdString().c_str());
+		MapLua::getLua()->getGlobal(sceneName.toStdString().c_str());
+		MapLua::getLua()->pushUserData(this, "QMapMaker");
+		MapLua::getLua()->pushUserData(this, "QMapMaker");
+		MapLua::getLua()->protectedCall(2, 0, 0);
+	}
+	catch (std::exception &e)
+	{
+		QMessageBox::warning(this, u8"Lua解析错误", e.what());
+		exit(1);
+	}
+
 }
 
 void QMapMaker::addTrigger(QString &trigger)
@@ -173,7 +189,13 @@ void QMapMaker::setTriggerIndex(int index)
 
 void QMapMaker::saveMap()
 {
-	QString str = QFileDialog::getOpenFileName(this,u8"请选择保存路径",QDir::currentPath(),"*.lua");
+	if (data->mapData.size() == 0)
+	{
+		QMessageBox::warning(this, u8"错误",u8"没有地图数据");
+		return ;
+	}
+
+	QString str = QFileDialog::getSaveFileName(this,u8"请选择保存路径",QDir::currentPath(),"*.lua");
 	if (str.isEmpty())
 	{
 		return;
@@ -182,22 +204,69 @@ void QMapMaker::saveMap()
 	auto list = str.split('/');
 	QString temp = list[list.size() - 1];
 	list = temp.split('.');
-	QString sceneName = temp[0];
+	QString sceneName = list[0];
 
 	QFile outFile(str);
 
 	outFile.open(QIODevice::WriteOnly);
 
+	std::string line;
+
+	for (int i = 0; i < data->allTriggers.size(); ++i)
+	{
+		line += "function ";
+		line +=data->allTriggers[i];
+		line += "(game,scence)\n\nend\n\n";
+	}
+
+	line += "function ";
+	line += sceneName.toStdString();
+	line += "(game,scence)\n\n";
+	line += "scence:setAllTrigger({";
+
+	for (int i = 0; i < data->allTriggers.size(); ++i)
+	{
+		line += "\"";
+		line += data->allTriggers[i];
+		line += "\",";
+	}
+
+	line.pop_back();
+
+	line+="})\n\n";
+	line += "local map={\n";
 	
+	for (int y = 0; y < data->mapData.size(); ++y)
+	{
+		line += "{";
+		for (int x = 0; x < data->mapData[0].size(); ++x)
+		{
+			line += "{";
+			line += QString::number(data->mapData[y][x].groundIndex).toStdString();
+			line += ",";
+			line += QString::number(data->mapData[y][x].objectIndex).toStdString();
+			line += ",";
+			line += QString::number(data->mapData[y][x].buildingIndex).toStdString();
+			line += ",";
+			line += QString::number(data->mapData[y][x].onStep).toStdString();
+			line += ",";
+			line += QString::number(data->mapData[y][x].onCheck).toStdString();
+			line += ",";
+			line += QString::number(data->mapData[y][x].onTime).toStdString();
+			line += ",";
+			line += QString::number(data->mapData[y][x].onTouch).toStdString();
+			line += "},";
+		}
+		line.pop_back();
+		line += "},\n";
+	}
 
-	outFile.write();
+	line.pop_back();
+	line += "}\n\nscence:setMap(map)\n\nend\n\n";
+	
+	outFile.write(line.c_str());
 
-
-
-
-
-
-
+	QMessageBox::warning(this, u8"完成", u8"地图保存成功");
 }
 
 int QMapMaker::getObjectNum()
@@ -468,6 +537,8 @@ void QMapMaker::createSubCom()
 	data->newMap = new QPushButton(u8"新建场景", this);
 	data->openMap = new QPushButton(u8"打开场景", this);
 	data->addTrigger = new QPushButton(u8"新建触发", this);
+	data->saveMap = new QPushButton(u8"保存场景", this);
+
 	data->sceneDialog = new newSceneDialog(this);
 	data->trigger = new triggerDialog(this);
 
@@ -568,6 +639,7 @@ void QMapMaker::connectSignal()
 	}
 	);
 
+	connect(data->saveMap, &QPushButton::clicked, this, &QMapMaker::saveMap);
 }
 
 void QMapMaker::setGeometry()
@@ -590,9 +662,10 @@ void QMapMaker::setGeometry()
 	data->timeBt->setGeometry(925, 470, 50, 20);
 	data->touchBt->setGeometry(925, 520, 50, 20);
 
-	data->newMap->setGeometry(710,575,75,25);
-	data->openMap->setGeometry(800, 575, 75, 25);
-	data->addTrigger->setGeometry(890, 575, 75, 25);
+	data->newMap->setGeometry(710,590,75,25);
+	data->openMap->setGeometry(800, 590, 75, 25);
+	data->addTrigger->setGeometry(890, 590, 75, 25);
+	data->saveMap->setGeometry(710,560,75,25);
 
 	data->itemCanvas = QPixmap(250, 350);
 
